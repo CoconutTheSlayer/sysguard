@@ -1192,6 +1192,22 @@ int AcquireGuiSingleInstanceLock() {
 
   [prefsMenu addItem:[NSMenuItem separatorItem]];
 
+  NSMenuItem* openCfgItem =
+      [[NSMenuItem alloc] initWithTitle:@"Open config.ini…"
+                                 action:@selector(onOpenConfig:)
+                          keyEquivalent:@""];
+  openCfgItem.target = self;
+  [prefsMenu addItem:openCfgItem];
+
+  NSMenuItem* reloadCfgItem =
+      [[NSMenuItem alloc] initWithTitle:@"Reload Config"
+                                 action:@selector(onReloadConfig:)
+                          keyEquivalent:@""];
+  reloadCfgItem.target = self;
+  [prefsMenu addItem:reloadCfgItem];
+
+  [prefsMenu addItem:[NSMenuItem separatorItem]];
+
   NSMenuItem* loginItem =
       [[NSMenuItem alloc] initWithTitle:@"Launch at Login"
                                  action:@selector(onToggleLaunchAtLogin:)
@@ -1595,6 +1611,48 @@ int AcquireGuiSingleInstanceLock() {
 - (void)onToggleLaunchAtLogin:(id)sender {
   (void)sender;
   SetLaunchAtLoginEnabled(!IsLaunchAtLoginEnabled());
+}
+
+- (void)onOpenConfig:(id)sender {
+  (void)sender;
+  dispatch_async(_actionQueue, ^{
+    @autoreleasepool {
+      std::string cfgPath = sysguard::default_config_path();
+      bool okCfg = sysguard::ensure_default_config_file(cfgPath);
+      std::string out;
+      int rc = -1;
+      bool opened =
+          okCfg &&
+          sysguard::run_command_capture({"/usr/bin/open", "-t", cfgPath}, out,
+                                        rc, 5000) &&
+          rc == 0;
+      dispatch_async(dispatch_get_main_queue(), ^{
+        self->_lastActionStatus =
+            opened ? "Opened config.ini"
+                   : (okCfg ? "Failed to open config.ini"
+                            : "Failed to create config.ini");
+        if (self->_menuOpen) [self rebuildMenu];
+      });
+    }
+  });
+}
+
+- (void)onReloadConfig:(id)sender {
+  (void)sender;
+  dispatch_async(_workQueue, ^{
+    @autoreleasepool {
+      sysguard::SysGuardConfig newCfg = sysguard::load_config();
+      self->_monitor->set_config(newCfg);
+      dispatch_async(dispatch_get_main_queue(), ^{
+        self->_config = std::move(newCfg);
+        self->_lastStatusBarKey.clear();
+        self->_lastActionStatus = "Config reloaded";
+        [self updateStatusBarButton];
+        if (self->_menuOpen) [self rebuildMenu];
+        [self triggerDeepScanWithAutoReap:NO];
+      });
+    }
+  });
 }
 
 @end

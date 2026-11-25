@@ -852,6 +852,12 @@ void MonitorState::reset_deltas() {
   last_sys_ps_ts_ = -1.0;
 }
 
+void MonitorState::set_config(SysGuardConfig cfg) {
+  config_ = std::move(cfg);
+  cached_podman_machine_name_ = config_.podman_default_machine;
+  vm_env_checked_ts_ = -1.0;
+}
+
 std::vector<MetricPoint> MonitorState::copy_history() const {
   std::vector<MetricPoint> out;
   out.reserve(history_count_);

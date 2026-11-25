@@ -19,7 +19,7 @@ bool terminate_pid_verified(pid_t pid,
                             std::string& err_msg);
 
 [[nodiscard]] std::string detect_podman_machine_name(
-    const std::string& fallback = "signage");
+    const std::string& fallback = "podman-machine-default");
 
 bool control_orbstack(bool start, std::string& err_msg);
 bool control_podman_machine(const std::string& name,

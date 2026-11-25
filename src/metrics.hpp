@@ -100,7 +100,7 @@ struct VmStatus {
   uint64_t orbstack_mem_bytes = 0;
 
   bool podman_installed = false;
-  std::string podman_machine_name = "signage";
+  std::string podman_machine_name = "podman-machine-default";
   bool podman_running = false;
   uint64_t podman_mem_bytes = 0;
 };
@@ -181,6 +181,7 @@ public:
                                   uint64_t orphan_min_age_sec = 7200,
                                   bool force_sys_scan = true);
   void reset_deltas();
+  void set_config(SysGuardConfig cfg);
 
   [[nodiscard]] std::vector<MetricPoint> copy_history() const;
   [[nodiscard]] const SysGuardConfig& config() const noexcept { return config_; }
@@ -233,7 +234,7 @@ private:
   double vm_env_checked_ts_ = -1.0;
   bool cached_orbstack_installed_ = false;
   bool cached_podman_installed_ = false;
-  std::string cached_podman_machine_name_ = "signage";
+  std::string cached_podman_machine_name_ = "podman-machine-default";
 
   double last_sys_ps_ts_ = -1.0;
   std::vector<ProcEntry> cached_sys_procs_;

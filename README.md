@@ -1,8 +1,13 @@
 # SysGuard v2.0
 
+[![CI](https://github.com/CoconutTheSlayer/sysguard/actions/workflows/ci.yml/badge.svg)](https://github.com/CoconutTheSlayer/sysguard/actions/workflows/ci.yml)
+[![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](LICENSE)
+
 Ultra-lightweight native macOS menu bar system monitor and Git worktree / dev-cache janitor written in **C++20 / Objective-C++ (AppKit)**.
 
 Uses direct Darwin Mach, `libproc`, and `IOKit` syscalls with **zero third-party dependencies** to monitor memory, swap, SSD health/writes, `fseventsd` leaks, listening dev ports, orphaned dev processes, and stale Git worktrees.
+
+![SysGuard Menu Bar Dashboard](docs/preview.png)
 
 Status bar readout:
 
@@ -22,7 +27,7 @@ Status bar readout:
   ```sh
   xcode-select --install
   ```
-- **Architecture:** `Makefile` defaults to Apple Silicon (`-arch arm64`). On Intel Macs, change `-arch arm64` to `-arch x86_64` in [Makefile](Makefile).
+- **Architecture:** `Makefile` auto-detects the host CPU architecture (`ARCH ?= $(shell uname -m)` for `arm64` or `x86_64`), or builds a universal binary with `make all ARCH="arm64 x86_64"`.
 - **Optional CLI integrations** (detected automatically when present): `git`, `orbctl` (OrbStack), `podman`, `pnpm`, `brew`, and `xcrun simctl`.
 
 ---
@@ -82,8 +87,9 @@ Click the status bar indicator to open the live dashboard:
   - One-click **Restart fseventsd** (prompts for macOS administrator credentials, or runs silently if you enable the optional scoped sudoers rule).
   - **Prevention & Settings → Install Passwordless fseventsd Rule (Admin)…** writes `/etc/sudoers.d/sysguard-fseventsd` (`<user> ALL=(root) NOPASSWD: /usr/bin/killall fseventsd`), validated with `visudo -cf` before installation, and removable from the same menu item.
   - Once installed, **Auto-Heal fseventsd (> 2 GB / 90% CPU)** can restart runaway `fseventsd` automatically.
-- **Worktrees & Disk Janitor + Launch at Login**
+- **Worktrees & Disk Janitor, Config & Launch at Login**
   - **Clean Dev Junk Now (Safe)**, **Audit Worktrees Now**, **Prune Safe Worktrees**, and **Weekly Auto-Clean (Sun 04:00)** (`com.local.sysguard.janitor` `LaunchAgent` managed live via `launchctl`).
+  - **Prevention & Settings → Open `config.ini`…** (creates a commented template if absent and opens it) and **Reload Config** (applies edits immediately without restarting SysGuard).
   - **Prevention & Settings → Launch at Login** installs/removes `~/Library/LaunchAgents/com.local.sysguard.plist`.
 
 ---
@@ -155,7 +161,7 @@ The app binary also acts as the scheduled headless janitor (invoked automaticall
 ```
 
 What `--janitor` safely targets:
-1. Aged test/temp directories in `/private/tmp/rev-*-tests` and `/private/tmp/claude-501/*/*` older than 48h and unused by running processes.
+1. Aged test/temp directories in `/private/tmp/rev-*-tests` and `/private/tmp/claude-<uid>/*/*` older than 48h and unused by running processes.
 2. Stale `com.google.Chrome.code_sign_clone` directories in `/private/var/folders` (only when Google Chrome is not running).
 3. `SAFE` Git worktrees idle >= 72h (including `extra_worktree_root` paths from `config.ini`).
 4. Rebuildable dev/package-manager caches (`ms-playwright`, `Homebrew`, `pnpm`, `npm`, `bun`, `uv`, `puppeteer`, `Cypress`, `chrome-devtools-mcp`, `Codex`, updater caches, plus `~/Library/Caches/Google` when Chrome is stopped).
@@ -169,7 +175,7 @@ Runs append a timestamped summary to `~/Library/Logs/SysGuard-janitor.log`.
 
 Create `~/Library/Application Support/SysGuard/config.ini` (`key=value`, `#` or `;` comments) to customize thresholds, your fallback Podman machine name, or additional worktree scan roots.
 
-- **SysGuard.app** reads `config.ini` at launch (quit and reopen SysGuard after editing).
+- **SysGuard.app** reads `config.ini` at launch and reloads live when you click **Prevention & Settings → Reload Config** (use **Open `config.ini`…** to generate a commented template if one does not exist yet).
 - **`wtclean`** and **`SysGuard --janitor`** read `config.ini` on every invocation.
 
 Example `~/Library/Application Support/SysGuard/config.ini`:
@@ -252,19 +258,21 @@ extra_worktree_root=~/src/feature-branch-wt
 ## Build, Test & Architecture
 
 ```sh
-make          # Build build/SysGuard.app and build/wtclean
-make test     # Run unit and isolated worktree tests
-make sanitize # Run tests with ASan + UBSan
-make tsan     # Run tests with ThreadSanitizer
-make analyze  # Run Clang Static Analyzer across all C++ and ObjC++ units
-make check    # Run test + sanitize + tsan + analyze
-make install  # Install SysGuard.app and wtclean
-make clean    # Remove build/
+make                      # Build build/SysGuard.app and build/wtclean (native arch)
+make all ARCH="arm64 x86_64"  # Build universal Apple Silicon + Intel binaries
+make test                 # Run unit and isolated worktree tests
+make sanitize             # Run tests with ASan + UBSan
+make tsan                 # Run tests with ThreadSanitizer
+make analyze              # Run Clang Static Analyzer across all C++ and ObjC++ units
+make check                # Run test + sanitize + tsan + analyze
+make install              # Install SysGuard.app and wtclean
+make uninstall            # Stop SysGuard, unload LaunchAgents, remove binaries
+make clean                # Remove build/
 ```
 
 ### Architecture
 
-- [src/config.hpp](src/config.hpp), [src/config.cpp](src/config.cpp) — INI config loader & atomic daily SSD write baseline persistence
+- [src/config.hpp](src/config.hpp), [src/config.cpp](src/config.cpp) — INI config loader, template generator, & atomic daily SSD write baseline persistence
 - [src/subprocess.hpp](src/subprocess.hpp), [src/subprocess.cpp](src/subprocess.cpp) — timeout-enforced, PGID-isolated `posix_spawn` command runner
 - [src/system_actions.hpp](src/system_actions.hpp), [src/system_actions.cpp](src/system_actions.cpp) — PID-verified termination, VM controls, sudoers helpers
 - [src/metrics.hpp](src/metrics.hpp), [src/metrics.cpp](src/metrics.cpp) — zero-copy Mach / `libproc` / `IOKit` sampler, adaptive daemon cadence, 15m ring buffer, alert evaluation
@@ -278,17 +286,24 @@ make clean    # Remove build/
 
 ## Uninstall
 
+Run:
+
 ```sh
-pkill -x SysGuard || true
-launchctl bootout "gui/$(id -u)/com.local.sysguard.janitor" 2>/dev/null || true
-launchctl bootout "gui/$(id -u)/com.local.sysguard" 2>/dev/null || true
-rm -rf /Applications/SysGuard.app ~/Applications/SysGuard.app
-rm -f ~/.local/bin/wtclean
-rm -f ~/Library/LaunchAgents/com.local.sysguard.plist \
-      ~/Library/LaunchAgents/com.local.sysguard.janitor.plist \
-      ~/Library/Caches/com.local.sysguard.lock \
-      ~/Library/Logs/SysGuard-janitor.log
+make uninstall
+```
+
+This stops `SysGuard`, unloads both LaunchAgents, and removes `/Applications/SysGuard.app` (or `~/Applications/SysGuard.app`), `~/.local/bin/wtclean`, the LaunchAgent plists, lock file, and janitor log.
+
+To also purge user configuration, saved daily I/O state, and the optional sudoers rule:
+
+```sh
 rm -rf ~/Library/Application\ Support/SysGuard
 # Optional: remove the passwordless fseventsd sudoers rule if you installed it
-# sudo rm -f /etc/sudoers.d/sysguard-fseventsd
+sudo rm -f /etc/sudoers.d/sysguard-fseventsd
 ```
+
+---
+
+## License
+
+[MIT License](LICENSE)

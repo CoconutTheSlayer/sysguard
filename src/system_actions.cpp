@@ -37,7 +37,7 @@ bool verify_pid_alive(pid_t pid,
 }  // namespace
 
 std::string detect_podman_machine_name(const std::string& fallback) {
-  std::string def = fallback.empty() ? "signage" : fallback;
+  std::string def = fallback.empty() ? "podman-machine-default" : fallback;
   const char* home = std::getenv("HOME");
   if (!home) return def;
   std::string dir =

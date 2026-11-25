@@ -1,0 +1,22 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+jobs:
+  build-and-check:
+    runs-on: macos-15
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Build and run checks
+        run: make all && make check
+
+      - name: Build universal binary (arm64 + x86_64)
+        run: |
+          make clean
+          make all ARCH="arm64 x86_64"
+          lipo -info build/SysGuard.app/Contents/MacOS/SysGuard build/wtclean

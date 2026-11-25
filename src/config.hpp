@@ -53,7 +53,7 @@ struct SysGuardConfig {
   double hw_disk_write_warn_mb_s = thresholds::kHwDiskWriteWarnMbS;
   double hw_disk_write_badge_mb_s = thresholds::kHwDiskWriteBadgeMbS;
 
-  std::string podman_default_machine = "signage";
+  std::string podman_default_machine = "podman-machine-default";
   std::vector<std::string> extra_worktree_roots;
 };
 
@@ -65,6 +65,8 @@ struct DailyWriteState {
 
 [[nodiscard]] std::string default_config_path();
 [[nodiscard]] SysGuardConfig load_config(
+    const std::string& path = default_config_path());
+bool ensure_default_config_file(
     const std::string& path = default_config_path());
 
 [[nodiscard]] std::string default_daily_state_path();

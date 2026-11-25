@@ -685,7 +685,7 @@ JanitorReport run_dev_janitor(const JanitorOptions& opts) {
       now_wall - static_cast<time_t>(opts.tmp_min_age_hours * 3600ULL);
   std::error_code ec;
 
-  // 1. Safe /private/tmp cleanup (rev-*-tests & claude-501/*/* only)
+  // 1. Safe /private/tmp cleanup (rev-*-tests & claude-<uid>/*/* only)
   std::vector<std::string> tmp_candidates;
   if (fs::is_directory("/private/tmp", ec)) {
     for (const auto& ent : fs::directory_iterator("/private/tmp", ec)) {
@@ -697,10 +697,10 @@ JanitorReport run_dev_janitor(const JanitorOptions& opts) {
       }
     }
   }
-  if (fs::is_directory("/private/tmp/claude-501", ec) &&
-      !fs::is_symlink("/private/tmp/claude-501", ec)) {
-    for (const auto& proj :
-         fs::directory_iterator("/private/tmp/claude-501", ec)) {
+  const std::string claude_tmp =
+      "/private/tmp/claude-" + std::to_string(getuid());
+  if (fs::is_directory(claude_tmp, ec) && !fs::is_symlink(claude_tmp, ec)) {
+    for (const auto& proj : fs::directory_iterator(claude_tmp, ec)) {
       if (ec || proj.is_symlink(ec) || !proj.is_directory(ec)) continue;
       for (const auto& sub : fs::directory_iterator(proj.path(), ec)) {
         if (ec || sub.is_symlink(ec)) continue;

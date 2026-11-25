@@ -92,6 +92,38 @@ std::string app_support_dir() {
   return std::string(home) + "/Library/Application Support/SysGuard";
 }
 
+bool write_file_atomic(const std::string& path, const std::string& content) {
+  if (path.empty()) return false;
+
+  std::error_code ec;
+  fs::path p(path);
+  if (p.has_parent_path()) {
+    fs::create_directories(p.parent_path(), ec);
+    if (ec) return false;
+  }
+
+  std::string tmp_path = path + ".tmp." + std::to_string(getpid());
+  {
+    std::ofstream ofs(tmp_path, std::ios::out | std::ios::trunc);
+    if (!ofs) return false;
+    ofs.write(content.data(), static_cast<std::streamsize>(content.size()));
+    ofs.flush();
+    if (!ofs.good()) {
+      ofs.close();
+      std::error_code rm_ec;
+      fs::remove(tmp_path, rm_ec);
+      return false;
+    }
+  }
+
+  if (std::rename(tmp_path.c_str(), path.c_str()) != 0) {
+    std::error_code rm_ec;
+    fs::remove(tmp_path, rm_ec);
+    return false;
+  }
+  return true;
+}
+
 }  // namespace
 
 std::string default_config_path() {
@@ -177,6 +209,50 @@ SysGuardConfig load_config(const std::string& path) {
   return cfg;
 }
 
+bool ensure_default_config_file(const std::string& path) {
+  if (path.empty()) return false;
+  std::error_code ec;
+  auto st = fs::symlink_status(path, ec);
+  if (!ec && st.type() != fs::file_type::not_found) {
+    return true;
+  }
+
+  static constexpr const char* kDefaultTemplate =
+      "# SysGuard configuration (key=value)\n"
+      "# Uncomment any setting to override its built-in default.\n"
+      "# In SysGuard.app, click Prevention & Settings -> Reload Config after saving.\n"
+      "\n"
+      "# fseventsd leak & CPU thresholds\n"
+      "# fseventsd_warn_mb=512\n"
+      "# fseventsd_crit_mb=1536\n"
+      "# fseventsd_auto_heal_mb=2048\n"
+      "# fseventsd_warn_cpu_pct=60.0\n"
+      "# fseventsd_crit_cpu_pct=90.0\n"
+      "\n"
+      "# Swap & memory thresholds\n"
+      "# swap_warn_gb=4\n"
+      "# swap_crit_gb=8\n"
+      "# mem_free_warn_pct=35\n"
+      "# mem_free_crit_pct=20\n"
+      "\n"
+      "# SSD capacity & write throughput thresholds\n"
+      "# disk_warn_avail_gb=100\n"
+      "# disk_crit_avail_gb=50\n"
+      "# disk_warn_used_pct=92.0\n"
+      "# disk_crit_used_pct=96.0\n"
+      "# proc_disk_write_warn_mb_s=50.0\n"
+      "# hw_disk_write_warn_mb_s=150.0\n"
+      "# hw_disk_write_badge_mb_s=30.0\n"
+      "\n"
+      "# Fallback Podman machine name (used only when auto-detection finds none)\n"
+      "# podman_default_machine=podman-machine-default\n"
+      "\n"
+      "# Extra worktree roots to scan (repeatable, supports ~/)\n"
+      "# extra_worktree_root=~/work/my-worktrees\n";
+
+  return write_file_atomic(path, kDefaultTemplate);
+}
+
 std::string default_daily_state_path() {
   std::string dir = app_support_dir();
   if (dir.empty()) return {};
@@ -220,35 +296,9 @@ DailyWriteState load_daily_write_state(const std::string& path) {
 bool save_daily_write_state(const std::string& path,
                             int yyyymmdd,
                             uint64_t start_written_bytes) {
-  if (path.empty()) return false;
-
-  std::error_code ec;
-  fs::path p(path);
-  if (p.has_parent_path()) {
-    fs::create_directories(p.parent_path(), ec);
-    if (ec) return false;
-  }
-
-  std::string tmp_path = path + ".tmp." + std::to_string(getpid());
-  {
-    std::ofstream ofs(tmp_path, std::ios::out | std::ios::trunc);
-    if (!ofs) return false;
-    ofs << yyyymmdd << " " << start_written_bytes << "\n";
-    ofs.flush();
-    if (!ofs.good()) {
-      ofs.close();
-      std::error_code rm_ec;
-      fs::remove(tmp_path, rm_ec);
-      return false;
-    }
-  }
-
-  if (std::rename(tmp_path.c_str(), path.c_str()) != 0) {
-    std::error_code rm_ec;
-    fs::remove(tmp_path, rm_ec);
-    return false;
-  }
-  return true;
+  std::string payload =
+      std::to_string(yyyymmdd) + " " + std::to_string(start_written_bytes) + "\n";
+  return write_file_atomic(path, payload);
 }
 
 }  // namespace sysguard
