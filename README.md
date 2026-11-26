@@ -68,11 +68,11 @@ open /Applications/SysGuard.app
 Click the status bar indicator to open the live dashboard:
 
 - **Header Gauge Card & 15-Minute Trend Sparklines**
-  - Live progress bars for **RAM** (used / total + compressed), **Swap** (used / total + % free), **SSD** (free space & % used), **SSD I/O** (real-time write `MB/s` + persistent daily hardware bytes written via `IOBlockStorageDriver`), and **CPU / `fseventsd`**.
+  - Live progress bars for **RAM** (used / total + compressed), **Swap** (used / total + % free), **SSD** (free space & % used), **SSD I/O** (real-time write `MB/s` + persistent daily hardware bytes written via `IOBlockStorageDriver`), **SSD Life** (native NVMe SMART wear %, lifetime TBW, spare %, and temperature), and **CPU / `fseventsd`**.
   - Compact 15-minute trend sparklines for **RAM 15m**, **Swap 15m**, and **Write 15m**.
   - Sleep & display-sleep aware: suspends sampling timers on system sleep, resets delta baselines on wake, and backs off to a 60s cadence while displays sleep.
 - **Alerts & Notifications**
-  - Evaluates `fseventsd` RSS/CPU leaks, high swap usage, low free memory %, low SSD free space / high disk usage, and sustained heavy disk write rates.
+  - Evaluates `fseventsd` RSS/CPU leaks, high swap usage, low free memory %, low SSD free space / high disk usage, elevated SSD SMART wear / media errors / low spare blocks, and sustained heavy disk write rates.
   - Sends native macOS notifications (toggleable under **Prevention & Settings → Notifications on Alerts**).
 - **Orphaned / Idle Dev Processes**
   - Flags idle `vite`/`next`/`webpack` dev servers, orphaned `/private/tmp` Postgres instances, stuck inline test loops, and idle debug Chrome instances (verified `0` active connections).
@@ -202,6 +202,8 @@ disk_crit_used_pct=96.0
 proc_disk_write_warn_mb_s=50.0
 hw_disk_write_warn_mb_s=150.0
 hw_disk_write_badge_mb_s=30.0
+ssd_wear_warn_pct=80
+ssd_wear_crit_pct=90
 
 # Fallback Podman machine name (used only if auto-detection finds no .raw VM disk)
 podman_default_machine=podman-machine-default
@@ -232,6 +234,8 @@ extra_worktree_root=~/src/feature-branch-wt
 | `proc_disk_write_warn_mb_s` | `50.0` | Per-process heavy writer threshold & I/O bar warn |
 | `hw_disk_write_warn_mb_s` | `150.0` | Hardware SSD write burst alert threshold |
 | `hw_disk_write_badge_mb_s` | `30.0` | Minimum `MB/s` before menu bar shows live write rate |
+| `ssd_wear_warn_pct` | `80` | Orange NVMe SSD SMART wear % alert threshold (`1`–`99`) |
+| `ssd_wear_crit_pct` | `90` | Red NVMe SSD SMART wear % alert threshold (`1`–`99`) |
 | `podman_default_machine` | auto-detected | Fallback if `~/.local/share/containers/podman/machine/applehv/*.raw` has no match |
 | `extra_worktree_root` | *(none)* | Repeatable path (accepts worktree root or parent folder of worktrees) |
 

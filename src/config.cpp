@@ -197,6 +197,10 @@ SysGuardConfig load_config(const std::string& path) {
       parse_positive_double(val, 100000.0, cfg.hw_disk_write_warn_mb_s);
     } else if (key == "hw_disk_write_badge_mb_s") {
       parse_positive_double(val, 100000.0, cfg.hw_disk_write_badge_mb_s);
+    } else if (key == "ssd_wear_warn_pct") {
+      parse_pct_int(val, cfg.ssd_wear_warn_pct);
+    } else if (key == "ssd_wear_crit_pct") {
+      parse_pct_int(val, cfg.ssd_wear_crit_pct);
     } else if (key == "podman_default_machine") {
       cfg.podman_default_machine = val;
     } else if (key == "extra_worktree_root") {
@@ -243,6 +247,8 @@ bool ensure_default_config_file(const std::string& path) {
       "# proc_disk_write_warn_mb_s=50.0\n"
       "# hw_disk_write_warn_mb_s=150.0\n"
       "# hw_disk_write_badge_mb_s=30.0\n"
+      "# ssd_wear_warn_pct=80\n"
+      "# ssd_wear_crit_pct=90\n"
       "\n"
       "# Fallback Podman machine name (used only when auto-detection finds none)\n"
       "# podman_default_machine=podman-machine-default\n"

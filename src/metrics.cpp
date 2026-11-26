@@ -1,8 +1,10 @@
 #include "metrics.hpp"
 
 #include <CoreFoundation/CoreFoundation.h>
+#include <IOKit/IOCFPlugIn.h>
 #include <IOKit/IOKitLib.h>
 #include <IOKit/storage/IOBlockStorageDriver.h>
+#include <IOKit/storage/nvme/NVMeSMARTLibExternal.h>
 #include <algorithm>
 #include <arpa/inet.h>
 #include <cctype>
@@ -657,6 +659,37 @@ std::vector<Alert> evaluate_alerts_impl(const FastMetrics& fast,
                       "Heavy SSD write", os.str()});
   }
 
+  if (deep.ssd_smart.available) {
+    const auto& s = deep.ssd_smart;
+    const bool crit_flag = (s.critical_warning != 0);
+    const bool media_err = (s.media_errors > 0);
+    const bool low_spare = (s.available_spare_threshold > 0 &&
+                            s.available_spare <= s.available_spare_threshold);
+    const int pct_used = static_cast<int>(s.percentage_used);
+    if (crit_flag || media_err || low_spare ||
+        pct_used >= cfg.ssd_wear_crit_pct) {
+      std::ostringstream os;
+      os << pct_used << "% wear · " << static_cast<unsigned>(s.available_spare)
+         << "% spare · " << std::fixed;
+      os.precision(1);
+      os << s.total_written_tb << " TBW";
+      if (media_err) os << " · " << s.media_errors << " media err";
+      if (crit_flag) os << " · critical flag";
+      alerts.push_back(
+          {AlertKind::SsdWear, AlertSeverity::Crit, "SSD health warning",
+           os.str()});
+    } else if (pct_used >= cfg.ssd_wear_warn_pct) {
+      std::ostringstream os;
+      os << pct_used << "% wear · ";
+      os.precision(1);
+      os << std::fixed << s.total_written_tb << " TBW · "
+         << static_cast<unsigned>(s.available_spare) << "% spare";
+      alerts.push_back(
+          {AlertKind::SsdWear, AlertSeverity::Warn, "SSD wear elevated",
+           os.str()});
+    }
+  }
+
   return alerts;
 }
 
@@ -787,6 +820,111 @@ uint64_t read_hw_disk_write_bytes() {
   }
   IOObjectRelease(iter);
   return total;
+}
+
+namespace {
+
+bool is_internal_block_device(io_service_t svc) {
+  CFTypeRef proto = IORegistryEntryCreateCFProperty(
+      svc, CFSTR("Protocol Characteristics"), kCFAllocatorDefault, 0);
+  if (!proto) return false;
+  bool is_internal = false;
+  if (CFGetTypeID(proto) == CFDictionaryGetTypeID()) {
+    CFDictionaryRef dict = static_cast<CFDictionaryRef>(proto);
+    const void* loc =
+        CFDictionaryGetValue(dict, CFSTR("Physical Interconnect Location"));
+    if (loc != nullptr &&
+        CFGetTypeID(static_cast<CFTypeRef>(loc)) == CFStringGetTypeID() &&
+        CFStringCompare(static_cast<CFStringRef>(loc), CFSTR("Internal"), 0) ==
+            kCFCompareEqualTo) {
+      is_internal = true;
+    }
+  }
+  CFRelease(proto);
+  return is_internal;
+}
+
+bool read_nvme_smart_for_service(io_service_t svc, SsdSmartHealth& out) {
+  IOCFPlugInInterface** plug = nullptr;
+  SInt32 score = 0;
+  kern_return_t kr = IOCreatePlugInInterfaceForService(
+      svc, kIONVMeSMARTUserClientTypeID, kIOCFPlugInInterfaceID, &plug, &score);
+  if (kr != KERN_SUCCESS || !plug) return false;
+
+  bool ok = false;
+  LPVOID raw_iface = nullptr;
+  HRESULT hr = (*plug)->QueryInterface(
+      plug, CFUUIDGetUUIDBytes(kIONVMeSMARTInterfaceID), &raw_iface);
+  if (hr == S_OK && raw_iface != nullptr) {
+    IONVMeSMARTInterface** smart =
+        static_cast<IONVMeSMARTInterface**>(raw_iface);
+    NVMeSMARTData d{};
+    if ((*smart)->SMARTReadData(smart, &d) == kIOReturnSuccess) {
+      out.available = true;
+      out.critical_warning = d.CRITICAL_WARNING;
+      out.percentage_used = d.PERCENTAGE_USED;
+      out.available_spare = d.AVAILABLE_SPARE;
+      out.available_spare_threshold = d.AVAILABLE_SPARE_THRESHOLD;
+      out.temperature_c =
+          (d.TEMPERATURE >= 273) ? (static_cast<int>(d.TEMPERATURE) - 273) : 0;
+      const uint64_t duw = d.DATA_UNITS_WRITTEN[0];
+      const uint64_t dur = d.DATA_UNITS_READ[0];
+      out.data_units_written = duw;
+      out.data_units_read = dur;
+      out.total_written_tb = static_cast<double>(duw) * 512000.0 / 1e12;
+      out.total_read_tb = static_cast<double>(dur) * 512000.0 / 1e12;
+      out.power_on_hours = d.POWER_ON_HOURS[0];
+      out.power_cycles = d.POWER_CYCLES[0];
+      out.unsafe_shutdowns = d.UNSAFE_SHUTDOWNS[0];
+      out.media_errors = d.MEDIA_ERRORS[0];
+      ok = true;
+    }
+    (*smart)->Release(smart);
+  }
+  IODestroyPlugInInterface(plug);
+  return ok;
+}
+
+}  // namespace
+
+SsdSmartHealth read_ssd_smart_health() {
+  SsdSmartHealth fallback_health;
+  CFMutableDictionaryRef matching = IOServiceMatching("IOBlockStorageDevice");
+  if (!matching) return fallback_health;
+
+  io_iterator_t iter = IO_OBJECT_NULL;
+  if (IOServiceGetMatchingServices(kIOMainPortDefault, matching, &iter) !=
+      KERN_SUCCESS) {
+    return fallback_health;
+  }
+
+  io_service_t entry = IO_OBJECT_NULL;
+  while ((entry = IOIteratorNext(iter)) != IO_OBJECT_NULL) {
+    CFTypeRef cap = IORegistryEntryCreateCFProperty(
+        entry, CFSTR(kIOPropertyNVMeSMARTCapableKey), kCFAllocatorDefault, 0);
+    bool smart_capable =
+        (cap != nullptr &&
+         CFGetTypeID(cap) == CFBooleanGetTypeID() &&
+         CFBooleanGetValue(static_cast<CFBooleanRef>(cap)));
+    if (cap != nullptr) CFRelease(cap);
+
+    if (smart_capable) {
+      SsdSmartHealth candidate;
+      if (read_nvme_smart_for_service(entry, candidate)) {
+        if (is_internal_block_device(entry)) {
+          IOObjectRelease(entry);
+          IOObjectRelease(iter);
+          return candidate;
+        }
+        if (!fallback_health.available) {
+          fallback_health = candidate;
+        }
+      }
+    }
+    IOObjectRelease(entry);
+  }
+  IOObjectRelease(iter);
+  return fallback_health;
 }
 
 std::string read_proc_cwd(pid_t pid) {
@@ -1301,6 +1439,11 @@ DeepMetrics MonitorState::sample_deep_metrics(const FastMetrics& fast,
         detect_podman_machine_name(config_.podman_default_machine);
     vm_env_checked_ts_ = now_mono;
   }
+  if (smart_checked_ts_ < 0.0 || (now_mono - smart_checked_ts_) >= 300.0) {
+    cached_ssd_smart_ = read_ssd_smart_health();
+    smart_checked_ts_ = now_mono;
+  }
+  deep.ssd_smart = cached_ssd_smart_;
   deep.vm_status.orbstack_installed = cached_orbstack_installed_;
   deep.vm_status.podman_installed = cached_podman_installed_;
   deep.vm_status.podman_machine_name = cached_podman_machine_name_;

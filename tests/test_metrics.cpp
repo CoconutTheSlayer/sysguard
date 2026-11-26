@@ -81,10 +81,34 @@ void test_evaluate_alerts() {
   fast.swap_used_bytes = 10ULL * kGB;
   fast.disk_avail_bytes = 70ULL * kGB;
   fast.disk_used_pct = 93.0;
+  deep.ssd_smart.available = true;
+  deep.ssd_smart.percentage_used = 80;
+  deep.ssd_smart.available_spare = 100;
+  deep.ssd_smart.available_spare_threshold = 99;
+  deep.ssd_smart.total_written_tb = 1200.5;
   alerts = evaluate_alerts(fast, deep, procs);
   assert(find_alert(AlertKind::FseventsdLeak)->severity == AlertSeverity::Crit);
   assert(find_alert(AlertKind::HighSwap)->severity == AlertSeverity::Crit);
   assert(find_alert(AlertKind::LowDisk)->severity == AlertSeverity::Warn);
+  assert(find_alert(AlertKind::SsdWear) != nullptr);
+  assert(find_alert(AlertKind::SsdWear)->severity == AlertSeverity::Warn);
+
+  deep.ssd_smart.percentage_used = 90;
+  alerts = evaluate_alerts(fast, deep, procs);
+  assert(find_alert(AlertKind::SsdWear) != nullptr);
+  assert(find_alert(AlertKind::SsdWear)->severity == AlertSeverity::Crit);
+
+  deep.ssd_smart.percentage_used = 5;
+  deep.ssd_smart.media_errors = 1;
+  alerts = evaluate_alerts(fast, deep, procs);
+  assert(find_alert(AlertKind::SsdWear) != nullptr);
+  assert(find_alert(AlertKind::SsdWear)->severity == AlertSeverity::Crit);
+
+  deep.ssd_smart.media_errors = 0;
+  deep.ssd_smart.available_spare = 99;
+  alerts = evaluate_alerts(fast, deep, procs);
+  assert(find_alert(AlertKind::SsdWear) != nullptr);
+  assert(find_alert(AlertKind::SsdWear)->severity == AlertSeverity::Crit);
 }
 
 void test_orphan_candidate_rules() {
@@ -436,6 +460,8 @@ void test_config_and_daily_state() {
         << "swap_crit_gb = 12\n"
         << "mem_free_crit_pct = 15\n"
         << "hw_disk_write_warn_mb_s = 250.5\n"
+        << "ssd_wear_warn_pct = 75\n"
+        << "ssd_wear_crit_pct = 88\n"
         << "podman_default_machine = customvm\n"
         << "extra_worktree_root = /tmp/custom-wt\n"
         << "fseventsd_warn_cpu_pct = invalid_number\n"
@@ -447,6 +473,8 @@ void test_config_and_daily_state() {
   assert(cfg.swap_crit_bytes == 12ULL * kGB);
   assert(cfg.mem_free_crit_pct == 15);
   assert(cfg.hw_disk_write_warn_mb_s == 250.5);
+  assert(cfg.ssd_wear_warn_pct == 75);
+  assert(cfg.ssd_wear_crit_pct == 88);
   assert(cfg.podman_default_machine == "customvm");
   assert(cfg.extra_worktree_roots.size() == 1);
   assert(cfg.extra_worktree_roots[0] == "/tmp/custom-wt");
@@ -458,6 +486,8 @@ void test_config_and_daily_state() {
   assert(fs::exists(created_cfg));
   SysGuardConfig def_cfg = load_config(created_cfg);
   assert(def_cfg.podman_default_machine == "podman-machine-default");
+  assert(def_cfg.ssd_wear_warn_pct == 80);
+  assert(def_cfg.ssd_wear_crit_pct == 90);
   assert(def_cfg.fseventsd_warn_bytes == thresholds::kFseventsdWarnBytes);
 
   assert(ensure_default_config_file(cfg_path));
@@ -538,6 +568,11 @@ void test_live_sampling_and_v2() {
   assert(d.fseventsd_rss_bytes > 0);
   assert(d.total_procs > 20);
   assert(!d.top_mem_groups.empty());
+  if (!in_ci) {
+    assert(d.ssd_smart.available);
+    assert(d.ssd_smart.available_spare <= 100);
+    assert(d.ssd_smart.total_written_tb >= 0.0);
+  }
 
   // Warm steady-state sampling (with ps scan & adaptive skipped ps scan)
   auto t3 = std::chrono::steady_clock::now();
@@ -592,6 +627,9 @@ void test_live_sampling_and_v2() {
             << " Swap=" << format_bytes(f2.swap_used_bytes)
             << " DiskAvail=" << format_bytes(f2.disk_avail_bytes)
             << " HwWriteTotal=" << format_bytes(f2.hw_disk_written_total_bytes)
+            << " ssdWear=" << static_cast<unsigned>(d2.ssd_smart.percentage_used)
+            << "% (" << std::fixed << d2.ssd_smart.total_written_tb << "TBW, "
+            << d2.ssd_smart.temperature_c << "C)"
             << " fseventsd=" << format_bytes(d2.fseventsd_rss_bytes)
             << " ports=" << d2.listening_services.size()
             << " orbRunning=" << d2.vm_status.orbstack_running

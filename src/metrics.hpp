@@ -140,6 +140,24 @@ enum class AlertKind {
   LowDisk,
   OrphansFound,
   HeavyDiskWrite,
+  SsdWear,
+};
+
+struct SsdSmartHealth {
+  bool available = false;
+  uint8_t critical_warning = 0;
+  uint8_t percentage_used = 0;
+  uint8_t available_spare = 100;
+  uint8_t available_spare_threshold = 0;
+  int temperature_c = 0;
+  uint64_t data_units_written = 0;
+  uint64_t data_units_read = 0;
+  double total_written_tb = 0.0;
+  double total_read_tb = 0.0;
+  uint64_t power_on_hours = 0;
+  uint64_t power_cycles = 0;
+  uint64_t unsafe_shutdowns = 0;
+  uint64_t media_errors = 0;
 };
 
 struct Alert {
@@ -154,6 +172,7 @@ struct DeepMetrics {
   uint64_t fseventsd_rss_bytes = 0;
   double fseventsd_cpu_pct = 0.0;
   int fseventsd_high_strikes = 0;
+  SsdSmartHealth ssd_smart;
 
   std::vector<AppGroup> top_mem_groups;
   std::vector<AppGroup> top_cpu_groups;
@@ -236,6 +255,9 @@ private:
   bool cached_podman_installed_ = false;
   std::string cached_podman_machine_name_ = "podman-machine-default";
 
+  double smart_checked_ts_ = -1.0;
+  SsdSmartHealth cached_ssd_smart_;
+
   double last_sys_ps_ts_ = -1.0;
   std::vector<ProcEntry> cached_sys_procs_;
   pid_t cached_fseventsd_pid_ = 0;
@@ -254,6 +276,7 @@ private:
 
 // Hardware & process helpers
 [[nodiscard]] uint64_t read_hw_disk_write_bytes();
+[[nodiscard]] SsdSmartHealth read_ssd_smart_health();
 [[nodiscard]] std::string read_proc_cwd(pid_t pid);
 [[nodiscard]] std::string read_proc_args(pid_t pid);
 [[nodiscard]] std::string extract_flag_value(const std::string& args,

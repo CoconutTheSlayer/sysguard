@@ -29,6 +29,9 @@ inline constexpr double kProcDiskWriteWarnMbS = 50.0;
 inline constexpr double kHwDiskWriteWarnMbS = 150.0;
 inline constexpr double kHwDiskWriteBadgeMbS = 30.0;
 
+inline constexpr int kSsdWearWarnPct = 80;
+inline constexpr int kSsdWearCritPct = 90;
+
 }  // namespace thresholds
 
 struct SysGuardConfig {
@@ -52,6 +55,9 @@ struct SysGuardConfig {
   double proc_disk_write_warn_mb_s = thresholds::kProcDiskWriteWarnMbS;
   double hw_disk_write_warn_mb_s = thresholds::kHwDiskWriteWarnMbS;
   double hw_disk_write_badge_mb_s = thresholds::kHwDiskWriteBadgeMbS;
+
+  int ssd_wear_warn_pct = thresholds::kSsdWearWarnPct;
+  int ssd_wear_crit_pct = thresholds::kSsdWearCritPct;
 
   std::string podman_default_machine = "podman-machine-default";
   std::vector<std::string> extra_worktree_roots;

@@ -657,10 +657,22 @@ int AcquireGuiSingleInstanceLock() {
     btn.attributedTitle = title;
   }
 
-  char tipBuf[512];
+  char smartLine[128] = "";
+  if (_deep.ssd_smart.available) {
+    std::snprintf(
+        smartLine, sizeof(smartLine),
+        "\nSSD Life: %u%% wear · %.1f TBW · %u%% spare · %d°C (%lluh)",
+        static_cast<unsigned>(_deep.ssd_smart.percentage_used),
+        _deep.ssd_smart.total_written_tb,
+        static_cast<unsigned>(_deep.ssd_smart.available_spare),
+        _deep.ssd_smart.temperature_c,
+        static_cast<unsigned long long>(_deep.ssd_smart.power_on_hours));
+  }
+
+  char tipBuf[640];
   std::snprintf(
       tipBuf, sizeof(tipBuf),
-      "RAM: %s / %s (%s compressed, %d%% free)\nSwap: %s / %s\nSSD: %s free · Write: %.1f MB/s (%s today)\nfseventsd: %s (%.1f%% CPU)\nListening ports: %zu · Orphans: %zu · SysGuard: %s",
+      "RAM: %s / %s (%s compressed, %d%% free)\nSwap: %s / %s\nSSD: %s free · Write: %.1f MB/s (%s today)%s\nfseventsd: %s (%.1f%% CPU)\nListening ports: %zu · Orphans: %zu · SysGuard: %s",
       sysguard::format_bytes(_fast.ram_used_bytes).c_str(),
       sysguard::format_bytes(_fast.ram_total_bytes).c_str(),
       sysguard::format_bytes(_fast.ram_compressed_bytes).c_str(),
@@ -670,6 +682,7 @@ int AcquireGuiSingleInstanceLock() {
       sysguard::format_bytes(_fast.disk_avail_bytes).c_str(),
       _fast.hw_disk_write_mb_s,
       sysguard::format_bytes_compact(_fast.hw_disk_written_today_bytes).c_str(),
+      smartLine,
       sysguard::format_bytes(_deep.fseventsd_rss_bytes).c_str(),
       _deep.fseventsd_cpu_pct, _deep.listening_services.size(),
       _deep.orphans.size(),
@@ -721,9 +734,9 @@ int AcquireGuiSingleInstanceLock() {
 - (void)rebuildMenu {
   [_menu removeAllItems];
 
-  // 1. Header gauges (5 bars + 3 sparklines)
+  // 1. Header gauges (6 bars + 3 sparklines)
   SysGuardHeaderView* header =
-      [[SysGuardHeaderView alloc] initWithFrame:NSMakeRect(0, 0, 352, 196)];
+      [[SysGuardHeaderView alloc] initWithFrame:NSMakeRect(0, 0, 352, 224)];
   header.fast = _fast;
   header.deep = _deep;
   header.config = _config;

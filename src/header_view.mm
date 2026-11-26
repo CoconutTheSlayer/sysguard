@@ -258,6 +258,36 @@ NSColor* SysGuardColorForSeverity(sysguard::AlertSeverity sev) {
              ratio:ioRatio
              color:ioColor];
 
+  double lifeRatio = 0.0;
+  NSColor* lifeColor = [NSColor systemGreenColor];
+  NSString* lifeVal = @"SMART unavailable";
+  if (d.ssd_smart.available) {
+    const auto& s = d.ssd_smart;
+    lifeRatio = static_cast<double>(s.percentage_used) / 100.0;
+    const bool crit_flag = (s.critical_warning != 0);
+    const bool media_err = (s.media_errors > 0);
+    const bool low_spare = (s.available_spare_threshold > 0 &&
+                            s.available_spare <= s.available_spare_threshold);
+    const int pct_used = static_cast<int>(s.percentage_used);
+    if (crit_flag || media_err || low_spare ||
+        pct_used >= cfg.ssd_wear_crit_pct) {
+      lifeColor = [NSColor systemRedColor];
+    } else if (pct_used >= cfg.ssd_wear_warn_pct) {
+      lifeColor = [NSColor systemOrangeColor];
+    }
+    lifeVal = [NSString
+        stringWithFormat:@"%u%% wear · %.1f TBW · %u%% spare · %d°C",
+                         static_cast<unsigned>(s.percentage_used),
+                         s.total_written_tb,
+                         static_cast<unsigned>(s.available_spare),
+                         s.temperature_c];
+  }
+  [self drawBarAtY:120.0
+             label:@"SSD Life"
+             value:lifeVal
+             ratio:lifeRatio
+             color:lifeColor];
+
   double fsRatio = static_cast<double>(d.fseventsd_rss_bytes) /
                    static_cast<double>(cfg.fseventsd_crit_bytes);
   double cpuRatio = f.cpu_used_pct / 100.0;
@@ -278,7 +308,7 @@ NSColor* SysGuardColorForSeverity(sysguard::AlertSeverity sev) {
                        sysguard::format_bytes_compact(d.fseventsd_rss_bytes)
                            .c_str(),
                        d.fseventsd_cpu_pct];
-  [self drawBarAtY:120.0
+  [self drawBarAtY:148.0
              label:@"CPU / fs"
              value:fsVal
              ratio:barRatio
@@ -286,7 +316,7 @@ NSColor* SysGuardColorForSeverity(sysguard::AlertSeverity sev) {
 
   // Subtle divider
   [[[NSColor labelColor] colorWithAlphaComponent:0.10] setFill];
-  NSRectFill(NSMakeRect(14.0, 148.0, NSWidth(self.bounds) - 28.0, 1.0));
+  NSRectFill(NSMakeRect(14.0, 176.0, NSWidth(self.bounds) - 28.0, 1.0));
 
   // 15-minute trend sparklines
   std::vector<double> ramSeries;
@@ -307,7 +337,7 @@ NSColor* SysGuardColorForSeverity(sysguard::AlertSeverity sev) {
     maxWriteMbS = std::max(maxWriteMbS, wm * 1.15);
   }
 
-  const CGFloat sparkY = 154.0;
+  const CGFloat sparkY = 182.0;
   const CGFloat sparkH = 34.0;
   const CGFloat sparkW = 101.0;
   [self drawSparklineInRect:NSMakeRect(14.0, sparkY, sparkW, sparkH)
